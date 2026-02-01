@@ -47,3 +47,110 @@
 
 </body>
 </html>
+
+// app.js
+
+const map = L.map('map').setView([45.75, 4.85], 13);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap'
+}).addTo(map);
+
+// Groupes de calques
+const lignesBus = {};
+const arrets = new L.FeatureGroup().addTo(map);
+
+map.addControl(new L.Control.Draw({
+  edit: { featureGroup: arrets },
+  draw: {
+    polygon: false,
+    rectangle: false,
+    circle: false,
+    circlemarker: false
+  }
+}));
+
+// Modale utilitaire
+function openModal(html, onSubmit) {
+  const modal = document.getElementById("modal");
+  const content = document.getElementById("modal-content");
+
+  content.innerHTML = html;
+  modal.style.display = "flex";
+
+  content.querySelector("form").onsubmit = (e) => {
+    e.preventDefault();
+    modal.style.display = "none";
+    onSubmit(new FormData(e.target));
+  };
+}
+
+// Gestion du dessin
+map.on(L.Draw.Event.CREATED, function (e) {
+  const layer = e.layer;
+
+  // 🟢 CAS 1 : ARRÊT DE BUS
+  if (e.layerType === 'marker') {
+    openModal(`
+      <h3>Nouvel arrêt</h3>
+      <form>
+        <label>Nom de l'arrêt</label>
+        <input name="nom" required>
+
+        <label>Ligne</label>
+        <input name="ligne" required>
+
+        <button>Valider</button>
+      </form>
+    `, data => {
+      layer.bindPopup(
+        `<b>${data.get("nom")}</b><br>Ligne ${data.get("ligne")}`
+      );
+      arrets.addLayer(layer);
+    });
+  }
+
+  // 🟡 CAS 2 : LIGNE DE BUS
+  if (e.layerType === 'polyline') {
+    openModal(`
+      <h3>Nouvelle ligne</h3>
+      <form>
+        <label>Numéro de ligne</label>
+        <input name="ligne" required>
+
+        <label>Départ</label>
+        <input name="depart">
+
+        <label>Arrivée</label>
+        <input name="arrivee">
+
+        <button>Valider</button>
+      </form>
+    `, data => {
+      const nomLigne = data.get("ligne");
+
+      if (!lignesBus[nomLigne]) {
+        lignesBus[nomLigne] = new L.FeatureGroup().addTo(map);
+      }
+
+      layer.bindPopup(
+        `<b>Ligne ${nomLigne}</b><br>${data.get("depart")} → ${data.get("arrivee")}`
+      );
+
+      lignesBus[nomLigne].addLayer(layer);
+    });
+  }
+});
+
+function creerDepot() {
+  openModal(`
+    <h3>Nouveau dépôt</h3>
+    <form>
+      <label>Nom du dépôt</label>
+      <input name="depot" required>
+      <button>Créer</button>
+    </form>
+  `, data => {
+    alert("Dépôt créé : " + data.get("depot"));
+  });
+}
