@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Réseau de bus - Version Pro++</title>
+<title>Réseau de bus - Pro++ avec sliders</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
@@ -19,32 +19,29 @@ html, body { margin:0; padding:0; height:100%; width:100%; font-family: Arial, s
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  font-family: Arial, sans-serif;
 }
 .modal-content {
   background: white;
   padding: 20px;
   border-radius: 8px;
   width: 360px;
-  font-family: Arial, sans-serif;
 }
 label { display:block; margin-top:10px; }
-input, select { width:100%; padding:5px; margin-top:5px; font-family: Arial, sans-serif; }
-button { margin-top:15px; padding:5px 10px; cursor:pointer; font-family: Arial, sans-serif; }
+input, select { width:100%; padding:5px; margin-top:5px; }
+button { margin-top:15px; padding:5px 10px; cursor:pointer; }
 
 #export-btn, #newline-btn {
   position: absolute; top:10px; z-index:1100;
   background:#fff; padding:8px 12px; border-radius:6px;
-  box-shadow:0 0 5px rgba(0,0,0,0.3); font-family: Arial, sans-serif;
+  box-shadow:0 0 5px rgba(0,0,0,0.3);
 }
 #export-btn { left:10px; }
-#newline-btn { left:120px; }
+#newline-btn { left:140px; }
 
 #legend {
   position:absolute; bottom:10px; right:10px; z-index:1100;
   background:white; padding:10px; border-radius:6px;
   max-height:300px; overflow-y:auto; box-shadow:0 0 5px rgba(0,0,0,0.3);
-  font-family: Arial, sans-serif;
 }
 .legend-item { margin-bottom:5px; display:flex; align-items:center; }
 .legend-color { width:20px; height:10px; margin-right:5px; display:inline-block; }
@@ -75,7 +72,6 @@ const depots = new L.FeatureGroup().addTo(map);
 const lignes = {}; // {nom: {layerGroup, color, weight, opacity}}
 
 // ====== ICONES ======
-const iconeArret = L.icon({iconUrl:'https://cdn-icons-png.flaticon.com/512/61/61188.png', iconSize:[25,25], iconAnchor:[12,25]});
 const iconeDepot = L.icon({iconUrl:'https://cdn-icons-png.flaticon.com/512/684/684908.png', iconSize:[30,30], iconAnchor:[15,30]});
 
 // ====== DRAW CONTROL ======
@@ -90,6 +86,16 @@ function openModal(html, callback){
   const content = document.getElementById("modal-content");
   content.innerHTML = html;
   modal.style.display = "flex";
+
+  // Mettre à jour le label des sliders en direct
+  content.querySelectorAll('input[type="range"]').forEach(slider=>{
+    const display = document.createElement('span');
+    display.style.float='right';
+    display.innerText = slider.value;
+    slider.parentNode.appendChild(display);
+    slider.oninput = ()=>display.innerText = slider.value;
+  });
+
   content.querySelector("form").onsubmit = (e)=>{
     e.preventDefault();
     modal.style.display = "none";
@@ -122,8 +128,10 @@ document.getElementById("newline-btn").onclick = ()=>{
     <form>
       <label>Nom de la ligne</label><input name="ligne" required>
       <label>Couleur</label><input name="color" type="color" value="#3388ff">
-      <label>Epaisseur</label><input name="weight" type="number" value="4" min="1">
-      <label>Opacité</label><input name="opacity" type="number" value="1" min="0" max="1" step="0.1">
+      <label>Epaisseur <span id="weight-val">4</span></label>
+      <input name="weight" type="range" min="1" max="10" value="4" step="1">
+      <label>Opacité <span id="opacity-val">1</span></label>
+      <input name="opacity" type="range" min="0.1" max="1" value="1" step="0.1">
       <button>Créer</button>
     </form>
   `, data=>{
@@ -159,9 +167,14 @@ map.on(L.Draw.Event.CREATED, e=>{
         <button>Valider</button>
       </form>
     `, data=>{
-      layer.setIcon(iconeArret);
-      layer.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
-      arrets.addLayer(layer);
+      const circle = L.circleMarker(layer.getLatLng(),{
+        radius:7,
+        color:'#3388ff',
+        fillColor:'#3388ff',
+        fillOpacity:0.8
+      });
+      circle.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
+      arrets.addLayer(circle);
     });
   }
 
