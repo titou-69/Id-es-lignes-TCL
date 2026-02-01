@@ -38,7 +38,7 @@ button { margin-top:15px; padding:5px 10px; cursor:pointer; }
   background:white; padding:10px; border-radius:6px;
   max-height:300px; overflow-y:auto; box-shadow:0 0 5px rgba(0,0,0,0.3);
 }
-.legend-item { margin-bottom:5px; display:flex; align-items:center; }
+.legend-item { margin-bottom:5px; display:flex; align-items:center; cursor:pointer; }
 .legend-color { width:20px; height:10px; margin-right:5px; display:inline-block; }
 
 #export-btn, #save-btn { position:absolute; bottom:10px; left:10px; z-index:1100; margin-top:5px; }
@@ -70,7 +70,7 @@ const map = L.map('map').setView([45.75,4.85],13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap'}).addTo(map);
 
 // ===== CALQUES =====
-const arrets = new L.FeatureGroup().addTo(map);
+const arrets = new L.FeatureGroup().addTo(map); // au-dessus
 const depots = new L.FeatureGroup().addTo(map);
 const lignes = {}; // {nom: {layerGroup, color, weight, opacity, depart, arrivee}}
 
@@ -103,9 +103,15 @@ function openModal(html, callback){
     modal.style.display = "none";
     callback(new FormData(e.target));
   }
+
+  // Bouton Annuler
+  const cancelBtn = content.querySelector('button.cancel');
+  if(cancelBtn){
+    cancelBtn.onclick = ()=>{ modal.style.display="none"; };
+  }
 }
 
-// ===== LEGEND DYNAMIQUE =====
+// ===== LEGEND DYNAMIQUE + surbrillance =====
 function updateLegend(){
   const container = document.getElementById("legend-items");
   container.innerHTML = '';
@@ -126,8 +132,27 @@ function updateLegend(){
     const text = document.createElement('span');
     text.innerText = `${l} (${lineData.depart} → ${lineData.arrivee})`;
     lineDiv.appendChild(text);
-
     container.appendChild(lineDiv);
+
+    // Interaction : surbrillance segment + arrêts
+    lineDiv.onclick = ()=>{
+      // Highlight segments
+      lineData.layerGroup.getLayers().forEach(seg=>{
+        const originalStyle = seg.options;
+        seg.setStyle({color:'#ff0000'});
+        setTimeout(()=>seg.setStyle(originalStyle),1000);
+      });
+      // Highlight arrêts
+      arrets.getLayers().forEach(ar=>{
+        const popupContent = ar.getPopup().getContent();
+        const arretLigne = popupContent.split('<br>')[1].replace('Ligne ','');
+        if(arretLigne===l){
+          const origColor = ar.options.color;
+          ar.setStyle({color:'#ff0000'});
+          setTimeout(()=>ar.setStyle({color:origColor}),1000);
+        }
+      });
+    };
 
     // Liste des arrêts de cette ligne
     arrets.getLayers().forEach(arret=>{
@@ -151,6 +176,13 @@ function updateLegend(){
         nameSpan.innerText = arretNom;
         arretDiv.appendChild(nameSpan);
         container.appendChild(arretDiv);
+
+        // Surbrillance arrêt depuis légende
+        arretDiv.onclick = ()=>{
+          const orig = arret.options.color;
+          arret.setStyle({color:'#ff0000'});
+          setTimeout(()=>arret.setStyle({color:orig}),1000);
+        };
       }
     });
   }
@@ -169,8 +201,10 @@ document.getElementById("newline-btn").onclick = ()=>{
       <label>Terminus départ</label><input name="depart" required>
       <label>Terminus arrivée</label><input name="arrivee" required>
       <button>Créer</button>
+      <button type="button" class="cancel">Annuler</button>
     </form>
   `, data=>{
+    if(!data) return;
     const nom = data.get('ligne');
     const color = data.get('color');
     const weight = parseInt(data.get('weight'));
@@ -178,7 +212,13 @@ document.getElementById("newline-btn").onclick = ()=>{
     const depart = data.get('depart');
     const arrivee = data.get('arrivee');
     if(!lignes[nom]){
-      lignes[nom] = { layerGroup: new L.FeatureGroup().addTo(map), color, weight, opacity, depart, arrivee };
+      // Ajouter sous les arrêts
+      const layerGroup = new L.FeatureGroup();
+      layerGroup.addTo(map);
+      map.eachLayer(layer=>{
+        if(layer===arrets) layer.bringToFront();
+      });
+      lignes[nom] = { layerGroup, color, weight, opacity, depart, arrivee };
       ligneActive = nom;
       updateLegend();
       alert(`Ligne "${nom}" créée. Les prochains segments tracés seront ajoutés à cette ligne.`);
@@ -188,12 +228,12 @@ document.getElementById("newline-btn").onclick = ()=>{
   });
 }
 
-// ===== CREATION OBJETS =====
+// ===== CREATION OBJETS & SEGMENTS =====
 map.on(L.Draw.Event.CREATED, e=>{
   const layer = e.layer;
 
-  // --- ARRÊT ---
-  if(e.layerType==='marker' && e.layerType!=='polyline'){
+  if(e.layerType==='marker'){
+    // --- ARRÊT ---
     let options='';
     for(let l in lignes) options += `<option value="${l}">${l}</option>`;
     openModal(`
@@ -205,6 +245,7 @@ map.on(L.Draw.Event.CREATED, e=>{
         <button>Valider</button>
       </form>
     `, data=>{
+      if(!data) return;
       const circle = L.circleMarker(layer.getLatLng(),{
         radius:6,
         color:'#3388ff',
@@ -219,10 +260,9 @@ map.on(L.Draw.Event.CREATED, e=>{
     });
   }
 
-  // --- LIGNE ---
   if(e.layerType==='polyline'){
+    // --- SEGMENT ---
     if(!ligneActive){
-      // Menu pour choisir ligne
       let options='';
       for(let l in lignes) options += `<option value="${l}">${l}</option>`;
       openModal(`
@@ -233,8 +273,8 @@ map.on(L.Draw.Event.CREATED, e=>{
           <button>Valider</button>
         </form>
       `, data=>{
-        const l = data.get('ligne');
-        addSegmentToLine(layer, l);
+        if(!data) return;
+        addSegmentToLine(layer, data.get('ligne'));
       });
     } else {
       addSegmentToLine(layer, ligneActive);
@@ -242,7 +282,6 @@ map.on(L.Draw.Event.CREATED, e=>{
   }
 });
 
-// ===== FONCTION AJOUT SEGMENT =====
 function addSegmentToLine(layer, ligneName){
   const lData = lignes[ligneName];
   layer.setStyle({color:lData.color, weight:lData.weight, opacity:lData.opacity});
@@ -265,6 +304,7 @@ function creerDepot(){
       <button>Valider</button>
     </form>
   `, data=>{
+    if(!data) return;
     const d = L.marker(map.getCenter(),{icon:iconeDepot});
     d.bindPopup(`<b>Dépôt ${data.get('depot')}</b><br>Ligne : ${data.get('ligne')}`);
     depots.addLayer(d);
@@ -272,7 +312,7 @@ function creerDepot(){
 }
 map.on('dblclick', e=>creerDepot());
 
-// ===== EDIT FUNCTIONS =====
+// ===== EDIT =====
 function editArret(circle){
   let options='';
   for(let l in lignes) options += `<option value="${l}">${l}</option>`;
@@ -285,6 +325,7 @@ function editArret(circle){
       <button>Valider</button>
     </form>
   `, data=>{
+    if(!data) return;
     circle.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
     updateLegend();
   });
@@ -301,7 +342,7 @@ function editSegment(layer){
       <button>Valider</button>
     </form>
   `, data=>{
-    // Retirer de l'ancienne ligne
+    if(!data) return;
     for(let l in lignes){
       if(lignes[l].layerGroup.hasLayer(layer)) lignes[l].layerGroup.removeLayer(layer);
     }
@@ -309,10 +350,8 @@ function editSegment(layer){
   });
 }
 
-// ===== EXPORT GEOJSON =====
+// ===== EXPORT & SAUVEGARDE =====
 document.getElementById("export-btn").onclick = ()=>{ exportGeoJSON(); }
-
-// ===== SAUVEGARDE =====
 document.getElementById("save-btn").onclick = ()=>{
   const data = exportGeoJSON();
   const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
@@ -325,7 +364,6 @@ document.getElementById("save-btn").onclick = ()=>{
   document.body.removeChild(a);
 }
 
-// ===== EXPORT GEOJSON FONCTION =====
 function exportGeoJSON(){
   const exportData = { arrets: arrets.toGeoJSON(), depots: depots.toGeoJSON(), lignes:{} };
   for(let l in lignes) exportData.lignes[l] = lignes[l].layerGroup.toGeoJSON();
