@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Cartographie | Projets lignes TCL</title>
+<title>Réseau de bus - SIG Pro++ interactif</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
@@ -70,7 +70,7 @@ const map = L.map('map').setView([45.75,4.85],13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap'}).addTo(map);
 
 // ===== CALQUES =====
-const arrets = new L.FeatureGroup().addTo(map); // au-dessus
+const arrets = new L.FeatureGroup().addTo(map); // toujours au-dessus
 const depots = new L.FeatureGroup().addTo(map);
 const lignes = {}; // {nom: {layerGroup, color, weight, opacity, depart, arrivee}}
 
@@ -98,7 +98,8 @@ function openModal(html, callback){
     slider.oninput = ()=>display.innerText = slider.value;
   });
 
-  content.querySelector("form").onsubmit = (e)=>{
+  const form = content.querySelector("form");
+  form.onsubmit = (e)=>{
     e.preventDefault();
     modal.style.display = "none";
     callback(new FormData(e.target));
@@ -111,7 +112,29 @@ function openModal(html, callback){
   }
 }
 
-// ===== LEGEND DYNAMIQUE + surbrillance =====
+// ===== SELECTION PERSISTANTE =====
+let selectedLayer = null;
+function selectLayer(layer){
+  // Désélection précédente
+  if(selectedLayer){
+    if(selectedLayer.originalStyle) selectedLayer.setStyle(selectedLayer.originalStyle);
+    selectedLayer = null;
+  }
+  // Appliquer style sélection
+  if(layer.setStyle){
+    layer.originalStyle = {color: layer.options.color, weight: layer.options.weight, opacity: layer.options.opacity};
+    layer.setStyle({color:'#ff0000', weight: layer.options.weight+2, opacity:1});
+    selectedLayer = layer;
+  } else {
+    // Pour marker
+    const origColor = layer.options.color;
+    layer.setStyle({color:'#ff0000', weight:layer.options.weight+1});
+    layer.originalStyle = {color:origColor};
+    selectedLayer = layer;
+  }
+}
+
+// ===== LEGEND DYNAMIQUE + interaction =====
 function updateLegend(){
   const container = document.getElementById("legend-items");
   container.innerHTML = '';
@@ -119,51 +142,45 @@ function updateLegend(){
   for(let l in lignes){
     const lineData = lignes[l];
 
-    // Ligne principale avec couleur et terminus
+    // Ligne principale
     const lineDiv = document.createElement('div');
     lineDiv.className = 'legend-item';
-
     const colorBox = document.createElement('span');
-    colorBox.className = 'legend-color';
+    colorBox.className='legend-color';
     colorBox.style.background = lineData.color;
     colorBox.style.opacity = lineData.opacity;
     lineDiv.appendChild(colorBox);
-
     const text = document.createElement('span');
     text.innerText = `${l} (${lineData.depart} → ${lineData.arrivee})`;
     lineDiv.appendChild(text);
     container.appendChild(lineDiv);
 
-    // Interaction : surbrillance segment + arrêts
+    // Sélection ligne
     lineDiv.onclick = ()=>{
-      // Highlight segments
+      // Sélection segments
       lineData.layerGroup.getLayers().forEach(seg=>{
-        const originalStyle = seg.options;
-        seg.setStyle({color:'#ff0000'});
-        setTimeout(()=>seg.setStyle(originalStyle),1000);
+        selectLayer(seg);
       });
-      // Highlight arrêts
+      // Sélection arrêts
       arrets.getLayers().forEach(ar=>{
         const popupContent = ar.getPopup().getContent();
         const arretLigne = popupContent.split('<br>')[1].replace('Ligne ','');
         if(arretLigne===l){
-          const origColor = ar.options.color;
-          ar.setStyle({color:'#ff0000'});
-          setTimeout(()=>ar.setStyle({color:origColor}),1000);
+          selectLayer(ar);
         }
       });
     };
 
-    // Liste des arrêts de cette ligne
+    // Arrêts de cette ligne
     arrets.getLayers().forEach(arret=>{
       const popupContent = arret.getPopup().getContent();
       const arretNom = popupContent.split('<br>')[0].replace('<b>','').replace('</b>','');
       const arretLigne = popupContent.split('<br>')[1].replace('Ligne ','');
       if(arretLigne === l){
         const arretDiv = document.createElement('div');
-        arretDiv.style.display = 'flex';
-        arretDiv.style.alignItems = 'center';
-        arretDiv.style.marginLeft = '25px';
+        arretDiv.style.display='flex';
+        arretDiv.style.alignItems='center';
+        arretDiv.style.marginLeft='25px';
         const dot = document.createElement('span');
         dot.style.display='inline-block';
         dot.style.width='10px';
@@ -177,11 +194,9 @@ function updateLegend(){
         arretDiv.appendChild(nameSpan);
         container.appendChild(arretDiv);
 
-        // Surbrillance arrêt depuis légende
+        // Sélection arrêt depuis légende
         arretDiv.onclick = ()=>{
-          const orig = arret.options.color;
-          arret.setStyle({color:'#ff0000'});
-          setTimeout(()=>arret.setStyle({color:orig}),1000);
+          selectLayer(arret);
         };
       }
     });
@@ -212,23 +227,20 @@ document.getElementById("newline-btn").onclick = ()=>{
     const depart = data.get('depart');
     const arrivee = data.get('arrivee');
     if(!lignes[nom]){
-      // Ajouter sous les arrêts
-      const layerGroup = new L.FeatureGroup();
-      layerGroup.addTo(map);
+      // Ligne sous les arrêts
+      const layerGroup = new L.FeatureGroup().addTo(map);
       map.eachLayer(layer=>{
         if(layer===arrets) layer.bringToFront();
       });
-      lignes[nom] = { layerGroup, color, weight, opacity, depart, arrivee };
+      lignes[nom] = {layerGroup,color,weight,opacity,depart,arrivee};
       ligneActive = nom;
       updateLegend();
       alert(`Ligne "${nom}" créée. Les prochains segments tracés seront ajoutés à cette ligne.`);
-    } else {
-      alert('Cette ligne existe déjà!');
-    }
+    } else { alert('Cette ligne existe déjà!'); }
   });
 }
 
-// ===== CREATION OBJETS & SEGMENTS =====
+// ===== CREATION OBJETS =====
 map.on(L.Draw.Event.CREATED, e=>{
   const layer = e.layer;
 
@@ -248,10 +260,10 @@ map.on(L.Draw.Event.CREATED, e=>{
       if(!data) return;
       const circle = L.circleMarker(layer.getLatLng(),{
         radius:6,
-        color:'#3388ff',
-        fillColor:'#fff',
+        color:'#000',        // contour noir fin
+        fillColor:'#fff',    // intérieur blanc
         fillOpacity:1,
-        weight:2
+        weight:1.5
       });
       circle.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
       circle.on('contextmenu', ()=>{ editArret(circle); });
@@ -261,7 +273,6 @@ map.on(L.Draw.Event.CREATED, e=>{
   }
 
   if(e.layerType==='polyline'){
-    // --- SEGMENT ---
     if(!ligneActive){
       let options='';
       for(let l in lignes) options += `<option value="${l}">${l}</option>`;
@@ -274,15 +285,15 @@ map.on(L.Draw.Event.CREATED, e=>{
         </form>
       `, data=>{
         if(!data) return;
-        addSegmentToLine(layer, data.get('ligne'));
+        addSegmentToLine(layer,data.get('ligne'));
       });
     } else {
-      addSegmentToLine(layer, ligneActive);
+      addSegmentToLine(layer,ligneActive);
     }
   }
 });
 
-function addSegmentToLine(layer, ligneName){
+function addSegmentToLine(layer,ligneName){
   const lData = lignes[ligneName];
   layer.setStyle({color:lData.color, weight:lData.weight, opacity:lData.opacity});
   layer.bindPopup(`<b>Ligne ${ligneName}</b>`);
@@ -312,7 +323,7 @@ function creerDepot(){
 }
 map.on('dblclick', e=>creerDepot());
 
-// ===== EDIT =====
+// ===== EDIT FUNCTIONS =====
 function editArret(circle){
   let options='';
   for(let l in lignes) options += `<option value="${l}">${l}</option>`;
