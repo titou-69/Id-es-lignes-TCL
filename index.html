@@ -41,7 +41,7 @@ button { margin-top:15px; padding:5px 10px; cursor:pointer; }
 .legend-item { margin-bottom:5px; display:flex; align-items:center; }
 .legend-color { width:20px; height:10px; margin-right:5px; display:inline-block; }
 
-#export-btn, #save-btn { position:absolute; bottom:10px; left:10px; z-index:1100; }
+#export-btn, #save-btn { position:absolute; bottom:10px; left:10px; z-index:1100; margin-top:5px; }
 </style>
 </head>
 
@@ -156,7 +156,6 @@ function updateLegend(){
   }
 }
 
-
 // ===== CREATION LIGNE =====
 let ligneActive = null;
 document.getElementById("newline-btn").onclick = ()=>{
@@ -216,6 +215,7 @@ map.on(L.Draw.Event.CREATED, e=>{
       circle.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
       circle.on('contextmenu', ()=>{ editArret(circle); });
       arrets.addLayer(circle);
+      updateLegend();
     });
   }
 
@@ -286,6 +286,7 @@ function editArret(circle){
     </form>
   `, data=>{
     circle.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
+    updateLegend();
   });
 }
 
@@ -309,9 +310,7 @@ function editSegment(layer){
 }
 
 // ===== EXPORT GEOJSON =====
-document.getElementById("export-btn").onclick = ()=>{
-  exportGeoJSON();
-}
+document.getElementById("export-btn").onclick = ()=>{ exportGeoJSON(); }
 
 // ===== SAUVEGARDE =====
 document.getElementById("save-btn").onclick = ()=>{
