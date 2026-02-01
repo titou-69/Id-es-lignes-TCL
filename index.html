@@ -1,149 +1,181 @@
-  <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <title>Réseau de bus</title>
+<meta charset="UTF-8">
+<title>Réseau de bus - Pro</title>
 
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
 
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      width: 100%;
-    }
-
-    #map {
-      width: 100%;
-      height: 100vh;
-      background: #eee;
-    }
-
-    /* MODALE */
-    .modal {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.5);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-
-    .modal-content {
-      background: white;
-      padding: 20px;
-      width: 320px;
-      border-radius: 8px;
-    }
-
-    label { display: block; margin-top: 10px; }
-    input { width: 100%; padding: 5px; margin-top: 5px; }
-    button { margin-top: 15px; padding: 5px 10px; }
-  </style>
+<style>
+html, body { margin:0; padding:0; height:100%; width:100%; }
+#map { height:100vh; width:100%; }
+.modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  background: rgba(0,0,0,0.5);
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  width: 340px;
+}
+label { display:block; margin-top:10px; }
+input, select { width:100%; padding:5px; margin-top:5px; }
+button { margin-top:15px; padding:5px 10px; cursor:pointer; }
+#export-btn {
+  position: absolute;
+  top:10px; left:10px;
+  z-index: 1100;
+  background:#fff; padding:8px 12px; border-radius:6px;
+  box-shadow:0 0 5px rgba(0,0,0,0.3);
+}
+</style>
 </head>
 
 <body>
-  <div id="map"></div>
+<div id="map"></div>
+<button id="export-btn">Exporter GeoJSON</button>
 
-  <!-- MODALE -->
-  <div id="modal" class="modal">
-    <div class="modal-content" id="modal-content"></div>
-  </div>
+<div id="modal" class="modal">
+  <div class="modal-content" id="modal-content"></div>
+</div>
 
-  <!-- Leaflet JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 
-  <script>
-    // Initialisation carte
-    const map = L.map('map').setView([45.75, 4.85], 13);
+<script>
+// ====== INITIALISATION CARTE ======
+const map = L.map('map').setView([45.75, 4.85], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap'
+}).addTo(map);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap'
-    }).addTo(map);
+// ====== CALQUES ======
+const arrets = new L.FeatureGroup().addTo(map);
+const lignes = {};   // chaque ligne = FeatureGroup
+const depots = new L.FeatureGroup().addTo(map);
 
-    // Groupes de calques
-    const arrets = new L.FeatureGroup().addTo(map);
-    const lignes = {};
+// ====== ICONES ======
+const iconeArret = L.icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/61/61188.png',
+  iconSize: [25,25], iconAnchor:[12,25]
+});
+const iconeDepot = L.icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
+  iconSize: [30,30], iconAnchor:[15,30]
+});
 
-    // Leaflet Draw
-    map.addControl(new L.Control.Draw({
-      edit: { featureGroup: arrets },
-      draw: {
-        polygon: false,
-        rectangle: false,
-        circle: false,
-        circlemarker: false
-      }
-    }));
+// ====== DRAW CONTROL ======
+map.addControl(new L.Control.Draw({
+  edit: { featureGroup: arrets },
+  draw: { polygon:false, rectangle:false, circle:false, circlemarker:false }
+}));
 
-    // Fonction modale
-    function openModal(html, callback) {
-      const modal = document.getElementById("modal");
-      const content = document.getElementById("modal-content");
-      content.innerHTML = html;
-      modal.style.display = "flex";
+// ====== MODALE ======
+function openModal(html, callback){
+  const modal = document.getElementById("modal");
+  const content = document.getElementById("modal-content");
+  content.innerHTML = html;
+  modal.style.display = "flex";
 
-      content.querySelector("form").onsubmit = (e) => {
-        e.preventDefault();
-        modal.style.display = "none";
-        callback(new FormData(e.target));
-      };
-    }
+  content.querySelector("form").onsubmit = (e)=>{
+    e.preventDefault();
+    modal.style.display = "none";
+    callback(new FormData(e.target));
+  }
+}
 
-    // Gestion création objet
-    map.on(L.Draw.Event.CREATED, function(e) {
-      const layer = e.layer;
+// ====== GESTION DRAW ======
+map.on(L.Draw.Event.CREATED, e => {
+  const layer = e.layer;
 
-      // 📍 ARRÊT
-      if (e.layerType === 'marker') {
-        openModal(`
-          <h3>Nouvel arrêt</h3>
-          <form>
-            <label>Nom de l'arrêt</label>
-            <input name="nom" required>
-
-            <label>Ligne</label>
-            <input name="ligne" required>
-
-            <button>Valider</button>
-          </form>
-        `, data => {
-          layer.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
-          arrets.addLayer(layer);
-        });
-      }
-
-      // 🧵 LIGNE
-      if (e.layerType === 'polyline') {
-        openModal(`
-          <h3>Nouvelle ligne</h3>
-          <form>
-            <label>Numéro de ligne</label>
-            <input name="ligne" required>
-
-            <label>Départ</label>
-            <input name="depart">
-
-            <label>Arrivée</label>
-            <input name="arrivee">
-
-            <button>Valider</button>
-          </form>
-        `, data => {
-          const numLigne = data.get('ligne');
-          if (!lignes[numLigne]) {
-            lignes[numLigne] = new L.FeatureGroup().addTo(map);
-          }
-          layer.bindPopup(`<b>Ligne ${numLigne}</b><br>${data.get('depart')} → ${data.get('arrivee')}`);
-          lignes[numLigne].addLayer(layer);
-        });
-      }
+  // --- ARRÊT ---
+  if(e.layerType==='marker' && e.layerType!=='polyline'){
+    // Liste des lignes existantes pour le select
+    let options = '';
+    for(let l in lignes) options += `<option value="${l}">${l}</option>`;
+    openModal(`
+      <h3>Nouvel arrêt</h3>
+      <form>
+        <label>Nom de l'arrêt</label><input name="nom" required>
+        <label>Ligne</label>
+        <select name="ligne" required>
+          ${options}
+        </select>
+        <button>Valider</button>
+      </form>
+    `, data=>{
+      layer.setIcon(iconeArret);
+      layer.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
+      arrets.addLayer(layer);
     });
-  </script>
+  }
+
+  // --- LIGNE ---
+  if(e.layerType==='polyline'){
+    openModal(`
+      <h3>Nouvelle ligne</h3>
+      <form>
+        <label>Numéro de ligne</label><input name="ligne" required>
+        <label>Départ</label><input name="depart">
+        <label>Arrivée</label><input name="arrivee">
+        <button>Valider</button>
+      </form>
+    `, data=>{
+      const l = data.get('ligne');
+      if(!lignes[l]) lignes[l] = new L.FeatureGroup().addTo(map);
+      layer.bindPopup(`<b>Ligne ${l}</b><br>${data.get('depart')} → ${data.get('arrivee')}`);
+      lignes[l].addLayer(layer);
+    });
+  }
+});
+
+// ====== CREER DEPOT ======
+function creerDepot(){
+  let options = '';
+  for(let l in lignes) options += `<option value="${l}">${l}</option>`;
+  openModal(`
+    <h3>Nouveau dépôt</h3>
+    <form>
+      <label>Nom du dépôt</label><input name="depot" required>
+      <label>Ligne associée</label>
+      <select name="ligne">${options}</select>
+      <button>Valider</button>
+    </form>
+  `, data=>{
+    const d = L.marker(map.getCenter(), {icon:iconeDepot});
+    d.bindPopup(`<b>Dépôt ${data.get('depot')}</b><br>Ligne : ${data.get('ligne')}`);
+    depots.addLayer(d);
+  });
+}
+
+// ====== BOUTON EXPORT GEOJSON ======
+document.getElementById("export-btn").onclick = ()=>{
+  const data = {
+    arrets: arrets.toGeoJSON(),
+    depots: depots.toGeoJSON(),
+    lignes: {}
+  };
+  for(let l in lignes) data.lignes[l] = lignes[l].toGeoJSON();
+
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'reseau-bus.geojson';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// ====== CREER DEPOT AVEC DOUBLE CLIC MAP ======
+map.on('dblclick', e=>creerDepot());
+</script>
 </body>
 </html>
