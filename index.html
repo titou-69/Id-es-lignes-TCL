@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Cartographie | Projets lignes TCL</title>
+<title>Réseau de bus - SIG Pro++ interactif</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
@@ -89,7 +89,6 @@ function openModal(html, callback){
   content.innerHTML = html;
   modal.style.display = "flex";
 
-  // Slider live value
   content.querySelectorAll('input[type="range"]').forEach(slider=>{
     const display = document.createElement('span');
     display.style.float='right';
@@ -105,28 +104,33 @@ function openModal(html, callback){
     callback(new FormData(e.target));
   }
 
-  // Bouton Annuler
   const cancelBtn = content.querySelector('button.cancel');
   if(cancelBtn){
     cancelBtn.onclick = ()=>{ modal.style.display="none"; };
   }
 }
 
+// ===== SELECTION TEMPORAIRE POUR ARRÊTS =====
+function highlightTemp(layer){
+  if(layer.setStyle){
+    const originalStyle = {color: layer.options.color, weight: layer.options.weight, opacity: layer.options.opacity};
+    layer.setStyle({color:'#ff0000', weight:layer.options.weight+1, opacity:1});
+    setTimeout(()=>layer.setStyle(originalStyle),2000);
+  }
+}
+
 // ===== SELECTION PERSISTANTE =====
 let selectedLayer = null;
 function selectLayer(layer){
-  // Désélection précédente
   if(selectedLayer){
     if(selectedLayer.originalStyle) selectedLayer.setStyle(selectedLayer.originalStyle);
     selectedLayer = null;
   }
-  // Appliquer style sélection
   if(layer.setStyle){
     layer.originalStyle = {color: layer.options.color, weight: layer.options.weight, opacity: layer.options.opacity};
     layer.setStyle({color:'#ff0000', weight: layer.options.weight+2, opacity:1});
     selectedLayer = layer;
-  } else {
-    // Pour marker
+  } else { 
     const origColor = layer.options.color;
     layer.setStyle({color:'#ff0000', weight:layer.options.weight+1});
     layer.originalStyle = {color:origColor};
@@ -142,7 +146,6 @@ function updateLegend(){
   for(let l in lignes){
     const lineData = lignes[l];
 
-    // Ligne principale
     const lineDiv = document.createElement('div');
     lineDiv.className = 'legend-item';
     const colorBox = document.createElement('span');
@@ -155,7 +158,6 @@ function updateLegend(){
     lineDiv.appendChild(text);
     container.appendChild(lineDiv);
 
-    // Sélection + zoom ligne
     lineDiv.onclick = ()=>{
       const bounds = lineData.layerGroup.getBounds();
       if(bounds.isValid()) map.fitBounds(bounds.pad(0.2));
@@ -163,11 +165,10 @@ function updateLegend(){
       arrets.getLayers().forEach(ar=>{
         const popupContent = ar.getPopup().getContent();
         const arretLigne = popupContent.split('<br>')[1].replace('Ligne ','');
-        if(arretLigne===l) selectLayer(ar);
+        if(arretLigne===l) highlightTemp(ar);
       });
     };
 
-    // Arrêts de cette ligne
     arrets.getLayers().forEach(arret=>{
       const popupContent = arret.getPopup().getContent();
       const arretNom = popupContent.split('<br>')[0].replace('<b>','').replace('</b>','');
@@ -190,10 +191,9 @@ function updateLegend(){
         arretDiv.appendChild(nameSpan);
         container.appendChild(arretDiv);
 
-        // Sélection + zoom arrêt
         arretDiv.onclick = ()=>{
           map.setView(arret.getLatLng(),16);
-          selectLayer(arret);
+          highlightTemp(arret);
         };
       }
     });
@@ -225,9 +225,7 @@ document.getElementById("newline-btn").onclick = ()=>{
     const arrivee = data.get('arrivee');
     if(!lignes[nom]){
       const layerGroup = new L.FeatureGroup().addTo(map);
-      map.eachLayer(layer=>{
-        if(layer===arrets) layer.bringToFront();
-      });
+      arrets.bringToFront(); // Toujours au-dessus
       lignes[nom] = {layerGroup,color,weight,opacity,depart,arrivee};
       ligneActive = nom;
       updateLegend();
@@ -263,6 +261,7 @@ map.on(L.Draw.Event.CREATED, e=>{
       circle.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
       circle.on('contextmenu', ()=>{ editArret(circle); });
       arrets.addLayer(circle);
+      arrets.bringToFront(); // Toujours au-dessus des lignes
       updateLegend();
     });
   }
@@ -294,83 +293,8 @@ function addSegmentToLine(layer,ligneName){
   layer.bindPopup(`<b>Ligne ${ligneName}</b>`);
   layer.on('contextmenu', ()=>{ editSegment(layer); });
   lData.layerGroup.addLayer(layer);
+  arrets.bringToFront(); // arrêts toujours au-dessus
   updateLegend();
-}
-
-// ===== CREER DEPOT =====
-function creerDepot(){
-  let options='';
-  for(let l in lignes) options += `<option value="${l}">${l}</option>`;
-  openModal(`
-    <h3>Nouveau dépôt</h3>
-    <form>
-      <label>Nom du dépôt</label><input name="depot" required>
-      <label>Ligne associée</label>
-      <select name="ligne">${options}</select>
-      <button>Valider</button>
-    </form>
-  `, data=>{
-    if(!data) return;
-    const d = L.marker(map.getCenter(),{icon:iconeDepot});
-    d.bindPopup(`<b>Dépôt ${data.get('depot')}</b><br>Ligne : ${data.get('ligne')}`);
-    depots.addLayer(d);
-  });
-}
-map.on('dblclick', e=>creerDepot());
-
-// ===== EDIT FUNCTIONS =====
-function editArret(circle){
-  let options='';
-  for(let l in lignes) options += `<option value="${l}">${l}</option>`;
-  openModal(`
-    <h3>Modifier arrêt</h3>
-    <form>
-      <label>Nom</label><input name="nom" value="${circle.getPopup().getContent().split('<br>')[0].replace('<b>','').replace('</b>','')}">
-      <label>Ligne</label>
-      <select name="ligne">${options}</select>
-      <button>Valider</button>
-    </form>
-  `, data=>{
-    if(!data) return;
-    circle.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
-    updateLegend();
-  });
-}
-
-function editSegment(layer){
-  let options='';
-  for(let l in lignes) options += `<option value="${l}">${l}</option>`;
-  openModal(`
-    <h3>Modifier segment</h3>
-    <form>
-      <label>Ligne</label>
-      <select name="ligne">${options}</select>
-      <button>Valider</button>
-      <button type="button" class="delete">Supprimer la ligne</button>
-      <button type="button" class="cancel">Annuler</button>
-    </form>
-  `, data=>{
-    if(!data) return;
-    // Supprimer la ligne
-    const deleteBtn = document.querySelector('.delete');
-    if(deleteBtn){
-      deleteBtn.onclick = ()=>{
-        for(let l in lignes){
-          if(lignes[l].layerGroup.hasLayer(layer)){
-            map.removeLayer(lignes[l].layerGroup);
-            delete lignes[l];
-          }
-        }
-        updateLegend();
-        document.getElementById("modal").style.display="none";
-      };
-    }
-    // Modifier segment
-    for(let l in lignes){
-      if(lignes[l].layerGroup.hasLayer(layer)) lignes[l].layerGroup.removeLayer(layer);
-    }
-    addSegmentToLine(layer, data.get('ligne'));
-  });
 }
 
 // ===== EXPORT & SAUVEGARDE =====
