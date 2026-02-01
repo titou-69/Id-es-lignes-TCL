@@ -2,14 +2,15 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Réseau de bus - Pro</title>
+<title>Réseau de bus - Version Pro++</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
 
 <style>
-html, body { margin:0; padding:0; height:100%; width:100%; }
+html, body { margin:0; padding:0; height:100%; width:100%; font-family: Arial, sans-serif; }
 #map { height:100vh; width:100%; }
+
 .modal {
   position: fixed;
   inset: 0;
@@ -18,29 +19,43 @@ html, body { margin:0; padding:0; height:100%; width:100%; }
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  font-family: Arial, sans-serif;
 }
 .modal-content {
   background: white;
   padding: 20px;
   border-radius: 8px;
-  width: 340px;
+  width: 360px;
+  font-family: Arial, sans-serif;
 }
 label { display:block; margin-top:10px; }
-input, select { width:100%; padding:5px; margin-top:5px; }
-button { margin-top:15px; padding:5px 10px; cursor:pointer; }
-#export-btn {
-  position: absolute;
-  top:10px; left:10px;
-  z-index: 1100;
+input, select { width:100%; padding:5px; margin-top:5px; font-family: Arial, sans-serif; }
+button { margin-top:15px; padding:5px 10px; cursor:pointer; font-family: Arial, sans-serif; }
+
+#export-btn, #newline-btn {
+  position: absolute; top:10px; z-index:1100;
   background:#fff; padding:8px 12px; border-radius:6px;
-  box-shadow:0 0 5px rgba(0,0,0,0.3);
+  box-shadow:0 0 5px rgba(0,0,0,0.3); font-family: Arial, sans-serif;
 }
+#export-btn { left:10px; }
+#newline-btn { left:120px; }
+
+#legend {
+  position:absolute; bottom:10px; right:10px; z-index:1100;
+  background:white; padding:10px; border-radius:6px;
+  max-height:300px; overflow-y:auto; box-shadow:0 0 5px rgba(0,0,0,0.3);
+  font-family: Arial, sans-serif;
+}
+.legend-item { margin-bottom:5px; display:flex; align-items:center; }
+.legend-color { width:20px; height:10px; margin-right:5px; display:inline-block; }
 </style>
 </head>
 
 <body>
 <div id="map"></div>
 <button id="export-btn">Exporter GeoJSON</button>
+<button id="newline-btn">Créer une nouvelle ligne</button>
+<div id="legend"><b>Lignes existantes :</b><div id="legend-items"></div></div>
 
 <div id="modal" class="modal">
   <div class="modal-content" id="modal-content"></div>
@@ -51,30 +66,22 @@ button { margin-top:15px; padding:5px 10px; cursor:pointer; }
 
 <script>
 // ====== INITIALISATION CARTE ======
-const map = L.map('map').setView([45.75, 4.85], 13);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap'
-}).addTo(map);
+const map = L.map('map').setView([45.75,4.85],13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap'}).addTo(map);
 
 // ====== CALQUES ======
 const arrets = new L.FeatureGroup().addTo(map);
-const lignes = {};   // chaque ligne = FeatureGroup
 const depots = new L.FeatureGroup().addTo(map);
+const lignes = {}; // {nom: {layerGroup, color, weight, opacity}}
 
 // ====== ICONES ======
-const iconeArret = L.icon({
-  iconUrl: 'https://cdn-icons-png.flaticon.com/512/61/61188.png',
-  iconSize: [25,25], iconAnchor:[12,25]
-});
-const iconeDepot = L.icon({
-  iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
-  iconSize: [30,30], iconAnchor:[15,30]
-});
+const iconeArret = L.icon({iconUrl:'https://cdn-icons-png.flaticon.com/512/61/61188.png', iconSize:[25,25], iconAnchor:[12,25]});
+const iconeDepot = L.icon({iconUrl:'https://cdn-icons-png.flaticon.com/512/684/684908.png', iconSize:[30,30], iconAnchor:[15,30]});
 
 // ====== DRAW CONTROL ======
 map.addControl(new L.Control.Draw({
-  edit: { featureGroup: arrets },
-  draw: { polygon:false, rectangle:false, circle:false, circlemarker:false }
+  edit:{featureGroup:arrets},
+  draw:{polygon:false, rectangle:false, circle:false, circlemarker:false}
 }));
 
 // ====== MODALE ======
@@ -83,7 +90,6 @@ function openModal(html, callback){
   const content = document.getElementById("modal-content");
   content.innerHTML = html;
   modal.style.display = "flex";
-
   content.querySelector("form").onsubmit = (e)=>{
     e.preventDefault();
     modal.style.display = "none";
@@ -91,23 +97,65 @@ function openModal(html, callback){
   }
 }
 
-// ====== GESTION DRAW ======
-map.on(L.Draw.Event.CREATED, e => {
+// ====== METTRE A JOUR LEGEND ======
+function updateLegend(){
+  const container = document.getElementById("legend-items");
+  container.innerHTML = '';
+  for(let l in lignes){
+    const item = document.createElement('div'); item.className='legend-item';
+    const colorBox = document.createElement('span'); colorBox.className='legend-color';
+    colorBox.style.background = lignes[l].color;
+    colorBox.style.opacity = lignes[l].opacity;
+    item.appendChild(colorBox);
+    const text = document.createElement('span');
+    text.innerText = `${l} (${lignes[l].layerGroup.getLayers().length} segments)`;
+    item.appendChild(text);
+    container.appendChild(item);
+  }
+}
+
+// ====== MENU CREER NOUVELLE LIGNE ======
+let ligneActive = null;
+document.getElementById("newline-btn").onclick = ()=>{
+  openModal(`
+    <h3>Créer une nouvelle ligne</h3>
+    <form>
+      <label>Nom de la ligne</label><input name="ligne" required>
+      <label>Couleur</label><input name="color" type="color" value="#3388ff">
+      <label>Epaisseur</label><input name="weight" type="number" value="4" min="1">
+      <label>Opacité</label><input name="opacity" type="number" value="1" min="0" max="1" step="0.1">
+      <button>Créer</button>
+    </form>
+  `, data=>{
+    const nom = data.get('ligne');
+    const color = data.get('color');
+    const weight = parseInt(data.get('weight'));
+    const opacity = parseFloat(data.get('opacity'));
+    if(!lignes[nom]){
+      lignes[nom] = { layerGroup: new L.FeatureGroup().addTo(map), color, weight, opacity };
+      ligneActive = nom;
+      updateLegend();
+      alert(`Ligne "${nom}" créée. Les prochains segments tracés seront ajoutés à cette ligne.`);
+    } else {
+      alert('Cette ligne existe déjà!');
+    }
+  });
+}
+
+// ====== CREATION D'OBJETS ======
+map.on(L.Draw.Event.CREATED, e=>{
   const layer = e.layer;
 
   // --- ARRÊT ---
   if(e.layerType==='marker' && e.layerType!=='polyline'){
-    // Liste des lignes existantes pour le select
-    let options = '';
+    let options='';
     for(let l in lignes) options += `<option value="${l}">${l}</option>`;
     openModal(`
       <h3>Nouvel arrêt</h3>
       <form>
         <label>Nom de l'arrêt</label><input name="nom" required>
         <label>Ligne</label>
-        <select name="ligne" required>
-          ${options}
-        </select>
+        <select name="ligne" required>${options}</select>
         <button>Valider</button>
       </form>
     `, data=>{
@@ -117,28 +165,23 @@ map.on(L.Draw.Event.CREATED, e => {
     });
   }
 
-  // --- LIGNE ---
+  // --- LIGNE (segment ajouté à ligne active) ---
   if(e.layerType==='polyline'){
-    openModal(`
-      <h3>Nouvelle ligne</h3>
-      <form>
-        <label>Numéro de ligne</label><input name="ligne" required>
-        <label>Départ</label><input name="depart">
-        <label>Arrivée</label><input name="arrivee">
-        <button>Valider</button>
-      </form>
-    `, data=>{
-      const l = data.get('ligne');
-      if(!lignes[l]) lignes[l] = new L.FeatureGroup().addTo(map);
-      layer.bindPopup(`<b>Ligne ${l}</b><br>${data.get('depart')} → ${data.get('arrivee')}`);
-      lignes[l].addLayer(layer);
-    });
+    if(!ligneActive){
+      alert('Créez d’abord une ligne via le bouton "Créer une nouvelle ligne" !');
+      return;
+    }
+    const lData = lignes[ligneActive];
+    layer.setStyle({color:lData.color, weight:lData.weight, opacity:lData.opacity});
+    layer.bindPopup(`<b>Ligne ${ligneActive}</b>`);
+    lData.layerGroup.addLayer(layer);
+    updateLegend();
   }
 });
 
 // ====== CREER DEPOT ======
 function creerDepot(){
-  let options = '';
+  let options='';
   for(let l in lignes) options += `<option value="${l}">${l}</option>`;
   openModal(`
     <h3>Nouveau dépôt</h3>
@@ -149,33 +192,30 @@ function creerDepot(){
       <button>Valider</button>
     </form>
   `, data=>{
-    const d = L.marker(map.getCenter(), {icon:iconeDepot});
+    const d = L.marker(map.getCenter(),{icon:iconeDepot});
     d.bindPopup(`<b>Dépôt ${data.get('depot')}</b><br>Ligne : ${data.get('ligne')}`);
     depots.addLayer(d);
   });
 }
+map.on('dblclick', e=>creerDepot());
 
-// ====== BOUTON EXPORT GEOJSON ======
+// ====== EXPORT GEOJSON ======
 document.getElementById("export-btn").onclick = ()=>{
-  const data = {
+  const exportData = {
     arrets: arrets.toGeoJSON(),
     depots: depots.toGeoJSON(),
     lignes: {}
   };
-  for(let l in lignes) data.lignes[l] = lignes[l].toGeoJSON();
-
-  const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
+  for(let l in lignes) exportData.lignes[l] = lignes[l].layerGroup.toGeoJSON();
+  const blob = new Blob([JSON.stringify(exportData,null,2)], {type:"application/json"});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
-  a.download = 'reseau-bus.geojson';
+  a.href=url;
+  a.download='reseau-bus.geojson';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
 }
-
-// ====== CREER DEPOT AVEC DOUBLE CLIC MAP ======
-map.on('dblclick', e=>creerDepot());
 </script>
 </body>
 </html>
