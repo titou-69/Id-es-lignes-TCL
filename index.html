@@ -1,165 +1,149 @@
-<!DOCTYPE html>
+  <!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
   <title>Réseau de bus</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw/dist/leaflet.draw.css" />
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
 
   <style>
     html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-}
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+    }
 
-#map {
-  width: 100%;
-  height: 100vh;
-  background: #eee; /* debug visuel */
-}
+    #map {
+      width: 100%;
+      height: 100vh;
+      background: #eee;
+    }
 
+    /* MODALE */
     .modal {
       position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
+      inset: 0;
       background: rgba(0,0,0,0.5);
       display: none;
       align-items: center;
       justify-content: center;
+      z-index: 1000;
     }
 
     .modal-content {
-      background: #fff;
+      background: white;
       padding: 20px;
-      width: 300px;
-      border-radius: 6px;
+      width: 320px;
+      border-radius: 8px;
     }
 
     label { display: block; margin-top: 10px; }
-    button { margin-top: 15px; }
+    input { width: 100%; padding: 5px; margin-top: 5px; }
+    button { margin-top: 15px; padding: 5px 10px; }
   </style>
 </head>
+
 <body>
+  <div id="map"></div>
 
-<div id="map"></div>
+  <!-- MODALE -->
+  <div id="modal" class="modal">
+    <div class="modal-content" id="modal-content"></div>
+  </div>
 
-<!-- MODALE -->
-<div id="modal" class="modal">
-  <div class="modal-content" id="modal-content"></div>
-</div>
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet-draw/dist/leaflet.draw.js"></script>
-<script src="app.js"></script>
+  <script>
+    // Initialisation carte
+    const map = L.map('map').setView([45.75, 4.85], 13);
 
-</body>
-</html>
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
 
-// app.js
+    // Groupes de calques
+    const arrets = new L.FeatureGroup().addTo(map);
+    const lignes = {};
 
-const map = L.map('map').setView([45.75, 4.85], 13);
+    // Leaflet Draw
+    map.addControl(new L.Control.Draw({
+      edit: { featureGroup: arrets },
+      draw: {
+        polygon: false,
+        rectangle: false,
+        circle: false,
+        circlemarker: false
+      }
+    }));
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap'
-}).addTo(map);
+    // Fonction modale
+    function openModal(html, callback) {
+      const modal = document.getElementById("modal");
+      const content = document.getElementById("modal-content");
+      content.innerHTML = html;
+      modal.style.display = "flex";
 
-// Groupes de calques
-const lignesBus = {};
-const arrets = new L.FeatureGroup().addTo(map);
+      content.querySelector("form").onsubmit = (e) => {
+        e.preventDefault();
+        modal.style.display = "none";
+        callback(new FormData(e.target));
+      };
+    }
 
-map.addControl(new L.Control.Draw({
-  edit: { featureGroup: arrets },
-  draw: {
-    polygon: false,
-    rectangle: false,
-    circle: false,
-    circlemarker: false
-  }
-}));
+    // Gestion création objet
+    map.on(L.Draw.Event.CREATED, function(e) {
+      const layer = e.layer;
 
-// Modale utilitaire
-function openModal(html, onSubmit) {
-  const modal = document.getElementById("modal");
-  const content = document.getElementById("modal-content");
+      // 📍 ARRÊT
+      if (e.layerType === 'marker') {
+        openModal(`
+          <h3>Nouvel arrêt</h3>
+          <form>
+            <label>Nom de l'arrêt</label>
+            <input name="nom" required>
 
-  content.innerHTML = html;
-  modal.style.display = "flex";
+            <label>Ligne</label>
+            <input name="ligne" required>
 
-  content.querySelector("form").onsubmit = (e) => {
-    e.preventDefault();
-    modal.style.display = "none";
-    onSubmit(new FormData(e.target));
-  };
-}
-
-// Gestion du dessin
-map.on(L.Draw.Event.CREATED, function (e) {
-  const layer = e.layer;
-
-  // 🟢 CAS 1 : ARRÊT DE BUS
-  if (e.layerType === 'marker') {
-    openModal(`
-      <h3>Nouvel arrêt</h3>
-      <form>
-        <label>Nom de l'arrêt</label>
-        <input name="nom" required>
-
-        <label>Ligne</label>
-        <input name="ligne" required>
-
-        <button>Valider</button>
-      </form>
-    `, data => {
-      layer.bindPopup(
-        `<b>${data.get("nom")}</b><br>Ligne ${data.get("ligne")}`
-      );
-      arrets.addLayer(layer);
-    });
-  }
-
-  // 🟡 CAS 2 : LIGNE DE BUS
-  if (e.layerType === 'polyline') {
-    openModal(`
-      <h3>Nouvelle ligne</h3>
-      <form>
-        <label>Numéro de ligne</label>
-        <input name="ligne" required>
-
-        <label>Départ</label>
-        <input name="depart">
-
-        <label>Arrivée</label>
-        <input name="arrivee">
-
-        <button>Valider</button>
-      </form>
-    `, data => {
-      const nomLigne = data.get("ligne");
-
-      if (!lignesBus[nomLigne]) {
-        lignesBus[nomLigne] = new L.FeatureGroup().addTo(map);
+            <button>Valider</button>
+          </form>
+        `, data => {
+          layer.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
+          arrets.addLayer(layer);
+        });
       }
 
-      layer.bindPopup(
-        `<b>Ligne ${nomLigne}</b><br>${data.get("depart")} → ${data.get("arrivee")}`
-      );
+      // 🧵 LIGNE
+      if (e.layerType === 'polyline') {
+        openModal(`
+          <h3>Nouvelle ligne</h3>
+          <form>
+            <label>Numéro de ligne</label>
+            <input name="ligne" required>
 
-      lignesBus[nomLigne].addLayer(layer);
+            <label>Départ</label>
+            <input name="depart">
+
+            <label>Arrivée</label>
+            <input name="arrivee">
+
+            <button>Valider</button>
+          </form>
+        `, data => {
+          const numLigne = data.get('ligne');
+          if (!lignes[numLigne]) {
+            lignes[numLigne] = new L.FeatureGroup().addTo(map);
+          }
+          layer.bindPopup(`<b>Ligne ${numLigne}</b><br>${data.get('depart')} → ${data.get('arrivee')}`);
+          lignes[numLigne].addLayer(layer);
+        });
+      }
     });
-  }
-});
-
-function creerDepot() {
-  openModal(`
-    <h3>Nouveau dépôt</h3>
-    <form>
-      <label>Nom du dépôt</label>
-      <input name="depot" required>
-      <button>Créer</button>
-    </form>
-  `, data => {
-    alert("Dépôt créé : " + data.get("depot"));
-  });
-}
+  </script>
+</body>
+</html>
