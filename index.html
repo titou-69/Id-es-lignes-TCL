@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Réseau de bus - Pro++ avec sliders</title>
+<title>Réseau de bus - Pro++ ultime</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
@@ -24,20 +24,15 @@ html, body { margin:0; padding:0; height:100%; width:100%; font-family: Arial, s
   background: white;
   padding: 20px;
   border-radius: 8px;
-  width: 360px;
+  width: 380px;
 }
 label { display:block; margin-top:10px; }
 input, select { width:100%; padding:5px; margin-top:5px; }
 button { margin-top:15px; padding:5px 10px; cursor:pointer; }
 
-#export-btn, #newline-btn {
-  position: absolute; top:10px; z-index:1100;
-  background:#fff; padding:8px 12px; border-radius:6px;
-  box-shadow:0 0 5px rgba(0,0,0,0.3);
+#btn-container {
+  position:absolute; top:10px; right:10px; z-index:1100; display:flex; gap:5px;
 }
-#export-btn { left:10px; }
-#newline-btn { left:140px; }
-
 #legend {
   position:absolute; bottom:10px; right:10px; z-index:1100;
   background:white; padding:10px; border-radius:6px;
@@ -45,13 +40,21 @@ button { margin-top:15px; padding:5px 10px; cursor:pointer; }
 }
 .legend-item { margin-bottom:5px; display:flex; align-items:center; }
 .legend-color { width:20px; height:10px; margin-right:5px; display:inline-block; }
+
+#export-btn, #save-btn { position:absolute; bottom:10px; left:10px; z-index:1100; }
 </style>
 </head>
 
 <body>
 <div id="map"></div>
+
+<div id="btn-container">
+  <button id="newline-btn">Créer une nouvelle ligne</button>
+</div>
+
 <button id="export-btn">Exporter GeoJSON</button>
-<button id="newline-btn">Créer une nouvelle ligne</button>
+<button id="save-btn">Sauvegarder les modifications</button>
+
 <div id="legend"><b>Lignes existantes :</b><div id="legend-items"></div></div>
 
 <div id="modal" class="modal">
@@ -62,32 +65,31 @@ button { margin-top:15px; padding:5px 10px; cursor:pointer; }
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 
 <script>
-// ====== INITIALISATION CARTE ======
+// ===== INITIALISATION CARTE =====
 const map = L.map('map').setView([45.75,4.85],13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap'}).addTo(map);
 
-// ====== CALQUES ======
+// ===== CALQUES =====
 const arrets = new L.FeatureGroup().addTo(map);
 const depots = new L.FeatureGroup().addTo(map);
-const lignes = {}; // {nom: {layerGroup, color, weight, opacity}}
+const lignes = {}; // {nom: {layerGroup, color, weight, opacity, depart, arrivee}}
 
-// ====== ICONES ======
 const iconeDepot = L.icon({iconUrl:'https://cdn-icons-png.flaticon.com/512/684/684908.png', iconSize:[30,30], iconAnchor:[15,30]});
 
-// ====== DRAW CONTROL ======
+// ===== DRAW CONTROL =====
 map.addControl(new L.Control.Draw({
   edit:{featureGroup:arrets},
   draw:{polygon:false, rectangle:false, circle:false, circlemarker:false}
 }));
 
-// ====== MODALE ======
+// ===== MODALE =====
 function openModal(html, callback){
   const modal = document.getElementById("modal");
   const content = document.getElementById("modal-content");
   content.innerHTML = html;
   modal.style.display = "flex";
 
-  // Mettre à jour le label des sliders en direct
+  // Slider live value
   content.querySelectorAll('input[type="range"]').forEach(slider=>{
     const display = document.createElement('span');
     display.style.float='right';
@@ -103,7 +105,7 @@ function openModal(html, callback){
   }
 }
 
-// ====== METTRE A JOUR LEGEND ======
+// ===== LEGEND =====
 function updateLegend(){
   const container = document.getElementById("legend-items");
   container.innerHTML = '';
@@ -114,13 +116,13 @@ function updateLegend(){
     colorBox.style.opacity = lignes[l].opacity;
     item.appendChild(colorBox);
     const text = document.createElement('span');
-    text.innerText = `${l} (${lignes[l].layerGroup.getLayers().length} segments)`;
+    text.innerText = `${l} (${lignes[l].depart} → ${lignes[l].arrivee})`;
     item.appendChild(text);
     container.appendChild(item);
   }
 }
 
-// ====== MENU CREER NOUVELLE LIGNE ======
+// ===== CREATION LIGNE =====
 let ligneActive = null;
 document.getElementById("newline-btn").onclick = ()=>{
   openModal(`
@@ -128,10 +130,10 @@ document.getElementById("newline-btn").onclick = ()=>{
     <form>
       <label>Nom de la ligne</label><input name="ligne" required>
       <label>Couleur</label><input name="color" type="color" value="#3388ff">
-      <label>Epaisseur <span id="weight-val">4</span></label>
-      <input name="weight" type="range" min="1" max="10" value="4" step="1">
-      <label>Opacité <span id="opacity-val">1</span></label>
-      <input name="opacity" type="range" min="0.1" max="1" value="1" step="0.1">
+      <label>Epaisseur <span>4</span></label><input name="weight" type="range" min="1" max="10" value="4" step="1">
+      <label>Opacité <span>1</span></label><input name="opacity" type="range" min="0.1" max="1" value="1" step="0.1">
+      <label>Terminus départ</label><input name="depart" required>
+      <label>Terminus arrivée</label><input name="arrivee" required>
       <button>Créer</button>
     </form>
   `, data=>{
@@ -139,8 +141,10 @@ document.getElementById("newline-btn").onclick = ()=>{
     const color = data.get('color');
     const weight = parseInt(data.get('weight'));
     const opacity = parseFloat(data.get('opacity'));
+    const depart = data.get('depart');
+    const arrivee = data.get('arrivee');
     if(!lignes[nom]){
-      lignes[nom] = { layerGroup: new L.FeatureGroup().addTo(map), color, weight, opacity };
+      lignes[nom] = { layerGroup: new L.FeatureGroup().addTo(map), color, weight, opacity, depart, arrivee };
       ligneActive = nom;
       updateLegend();
       alert(`Ligne "${nom}" créée. Les prochains segments tracés seront ajoutés à cette ligne.`);
@@ -150,7 +154,7 @@ document.getElementById("newline-btn").onclick = ()=>{
   });
 }
 
-// ====== CREATION D'OBJETS ======
+// ===== CREATION OBJETS =====
 map.on(L.Draw.Event.CREATED, e=>{
   const layer = e.layer;
 
@@ -168,31 +172,52 @@ map.on(L.Draw.Event.CREATED, e=>{
       </form>
     `, data=>{
       const circle = L.circleMarker(layer.getLatLng(),{
-        radius:7,
+        radius:6,
         color:'#3388ff',
-        fillColor:'#3388ff',
-        fillOpacity:0.8
+        fillColor:'#fff',
+        fillOpacity:1,
+        weight:2
       });
       circle.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
+      circle.on('contextmenu', ()=>{ editArret(circle); });
       arrets.addLayer(circle);
     });
   }
 
-  // --- LIGNE (segment ajouté à ligne active) ---
+  // --- LIGNE ---
   if(e.layerType==='polyline'){
     if(!ligneActive){
-      alert('Créez d’abord une ligne via le bouton "Créer une nouvelle ligne" !');
-      return;
+      // Menu pour choisir ligne
+      let options='';
+      for(let l in lignes) options += `<option value="${l}">${l}</option>`;
+      openModal(`
+        <h3>Attribuer le segment à une ligne</h3>
+        <form>
+          <label>Ligne</label>
+          <select name="ligne" required>${options}</select>
+          <button>Valider</button>
+        </form>
+      `, data=>{
+        const l = data.get('ligne');
+        addSegmentToLine(layer, l);
+      });
+    } else {
+      addSegmentToLine(layer, ligneActive);
     }
-    const lData = lignes[ligneActive];
-    layer.setStyle({color:lData.color, weight:lData.weight, opacity:lData.opacity});
-    layer.bindPopup(`<b>Ligne ${ligneActive}</b>`);
-    lData.layerGroup.addLayer(layer);
-    updateLegend();
   }
 });
 
-// ====== CREER DEPOT ======
+// ===== FONCTION AJOUT SEGMENT =====
+function addSegmentToLine(layer, ligneName){
+  const lData = lignes[ligneName];
+  layer.setStyle({color:lData.color, weight:lData.weight, opacity:lData.opacity});
+  layer.bindPopup(`<b>Ligne ${ligneName}</b>`);
+  layer.on('contextmenu', ()=>{ editSegment(layer); });
+  lData.layerGroup.addLayer(layer);
+  updateLegend();
+}
+
+// ===== CREER DEPOT =====
 function creerDepot(){
   let options='';
   for(let l in lignes) options += `<option value="${l}">${l}</option>`;
@@ -212,22 +237,65 @@ function creerDepot(){
 }
 map.on('dblclick', e=>creerDepot());
 
-// ====== EXPORT GEOJSON ======
+// ===== EDIT FUNCTIONS =====
+function editArret(circle){
+  let options='';
+  for(let l in lignes) options += `<option value="${l}">${l}</option>`;
+  openModal(`
+    <h3>Modifier arrêt</h3>
+    <form>
+      <label>Nom</label><input name="nom" value="${circle.getPopup().getContent().split('<br>')[0].replace('<b>','').replace('</b>','')}">
+      <label>Ligne</label>
+      <select name="ligne">${options}</select>
+      <button>Valider</button>
+    </form>
+  `, data=>{
+    circle.bindPopup(`<b>${data.get('nom')}</b><br>Ligne ${data.get('ligne')}`);
+  });
+}
+
+function editSegment(layer){
+  let options='';
+  for(let l in lignes) options += `<option value="${l}">${l}</option>`;
+  openModal(`
+    <h3>Modifier segment</h3>
+    <form>
+      <label>Ligne</label>
+      <select name="ligne">${options}</select>
+      <button>Valider</button>
+    </form>
+  `, data=>{
+    // Retirer de l'ancienne ligne
+    for(let l in lignes){
+      if(lignes[l].layerGroup.hasLayer(layer)) lignes[l].layerGroup.removeLayer(layer);
+    }
+    addSegmentToLine(layer, data.get('ligne'));
+  });
+}
+
+// ===== EXPORT GEOJSON =====
 document.getElementById("export-btn").onclick = ()=>{
-  const exportData = {
-    arrets: arrets.toGeoJSON(),
-    depots: depots.toGeoJSON(),
-    lignes: {}
-  };
-  for(let l in lignes) exportData.lignes[l] = lignes[l].layerGroup.toGeoJSON();
-  const blob = new Blob([JSON.stringify(exportData,null,2)], {type:"application/json"});
+  exportGeoJSON();
+}
+
+// ===== SAUVEGARDE =====
+document.getElementById("save-btn").onclick = ()=>{
+  const data = exportGeoJSON();
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href=url;
-  a.download='reseau-bus.geojson';
+  a.href = url;
+  a.download = 'reseau-bus-sauvegarde.geojson';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+// ===== EXPORT GEOJSON FONCTION =====
+function exportGeoJSON(){
+  const exportData = { arrets: arrets.toGeoJSON(), depots: depots.toGeoJSON(), lignes:{} };
+  for(let l in lignes) exportData.lignes[l] = lignes[l].layerGroup.toGeoJSON();
+  return exportData;
 }
 </script>
 </body>
