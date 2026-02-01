@@ -105,22 +105,57 @@ function openModal(html, callback){
   }
 }
 
-// ===== LEGEND =====
+// ===== LEGEND DYNAMIQUE =====
 function updateLegend(){
   const container = document.getElementById("legend-items");
   container.innerHTML = '';
+
   for(let l in lignes){
-    const item = document.createElement('div'); item.className='legend-item';
-    const colorBox = document.createElement('span'); colorBox.className='legend-color';
-    colorBox.style.background = lignes[l].color;
-    colorBox.style.opacity = lignes[l].opacity;
-    item.appendChild(colorBox);
+    const lineData = lignes[l];
+
+    // Ligne principale avec couleur et terminus
+    const lineDiv = document.createElement('div');
+    lineDiv.className = 'legend-item';
+
+    const colorBox = document.createElement('span');
+    colorBox.className = 'legend-color';
+    colorBox.style.background = lineData.color;
+    colorBox.style.opacity = lineData.opacity;
+    lineDiv.appendChild(colorBox);
+
     const text = document.createElement('span');
-    text.innerText = `${l} (${lignes[l].depart} → ${lignes[l].arrivee})`;
-    item.appendChild(text);
-    container.appendChild(item);
+    text.innerText = `${l} (${lineData.depart} → ${lineData.arrivee})`;
+    lineDiv.appendChild(text);
+
+    container.appendChild(lineDiv);
+
+    // Liste des arrêts de cette ligne
+    arrets.getLayers().forEach(arret=>{
+      const popupContent = arret.getPopup().getContent();
+      const arretNom = popupContent.split('<br>')[0].replace('<b>','').replace('</b>','');
+      const arretLigne = popupContent.split('<br>')[1].replace('Ligne ','');
+      if(arretLigne === l){
+        const arretDiv = document.createElement('div');
+        arretDiv.style.display = 'flex';
+        arretDiv.style.alignItems = 'center';
+        arretDiv.style.marginLeft = '25px';
+        const dot = document.createElement('span');
+        dot.style.display='inline-block';
+        dot.style.width='10px';
+        dot.style.height='10px';
+        dot.style.background=lineData.color;
+        dot.style.borderRadius='50%';
+        dot.style.marginRight='5px';
+        arretDiv.appendChild(dot);
+        const nameSpan = document.createElement('span');
+        nameSpan.innerText = arretNom;
+        arretDiv.appendChild(nameSpan);
+        container.appendChild(arretDiv);
+      }
+    });
   }
 }
+
 
 // ===== CREATION LIGNE =====
 let ligneActive = null;
